@@ -16,6 +16,7 @@ import (
 	"github.com/xtraice/go-utils/database"
 )
 
+var lock = &sync.Mutex{}
 var db *gorm.DB
 var stats *GoogleTranslateStats
 var once sync.Once
@@ -92,7 +93,9 @@ func init() {
 	db = database.GetDB()
 	db.AutoMigrate(&GoogleTranslateStats{}, &BlacklistedUser{}, &BotTranslateSession{}, &DiscordUser{}, &UserLangStats{})
 
-	if db := db.Where("ID=?", 1).Find(stats); db.Error != nil {
+	// if dbs := db.Where("ID=?", 1).Find(*stats); dbs.Error != nil {
+	stats = GetInstance() //singleton
+	if dbs := db.First(stats); dbs.Error != nil {
 		TranslateBotStatsInit()
 	}
 	fmt.Printf("symbols translated: %d\n", stats.SymbolsTranslated)
@@ -100,7 +103,6 @@ func init() {
 }
 
 func TranslateBotStatsInit() {
-	stats = GetInstance() //singleton
 	fmt.Println("INIT Translate Stats Table")
 	db.NewRecord(stats)
 	db.Create(&stats)
@@ -109,14 +111,25 @@ func TranslateBotStatsInit() {
 // GetInstance returns the singleton instance
 func GetInstance() *GoogleTranslateStats {
 	once.Do(func() {
-		stats = &GoogleTranslateStats{
-			Model: gorm.Model{ID: 1},
-			ResetDateTime: time.Date(time.Now().UTC().Year(), time.Now().UTC().Month(), 1,
-				0, 0, 0, 0, time.Now().UTC().Location()).AddDate(0, 1, 0),
-			LastUserSuccess:   time.Now().UTC(),
-			LastUserFailure:   time.Now().UTC(),
-			SymbolsMonthlyCap: 500000,
-			SymbolsTranslated: 1000,
+		if stats == nil {
+			lock.Lock()
+			defer lock.Unlock()
+			if stats == nil {
+				fmt.Println("Creating Singleton Instance")
+				stats = &GoogleTranslateStats{
+					Model: gorm.Model{ID: 1},
+					ResetDateTime: time.Date(time.Now().UTC().Year(), time.Now().UTC().Month(), 1,
+						0, 0, 0, 0, time.Now().UTC().Location()).AddDate(0, 1, 0),
+					LastUserSuccess:   time.Now().UTC(),
+					LastUserFailure:   time.Now().UTC(),
+					SymbolsMonthlyCap: 500000,
+					SymbolsTranslated: 1000,
+				}
+			} else {
+				fmt.Println("Singleton already created")
+			}
+		} else {
+			fmt.Println("Singleton already created")
 		}
 	})
 	return stats

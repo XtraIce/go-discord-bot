@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path"
 	"strings"
 	"syscall"
 
@@ -34,8 +35,8 @@ var gClient_ *translate.Client
 
 func main() {
 	botContext = context.Background()
-
-	if !DiscordGetCredentials("/go/src/creds.json") {
+	home := os.Getenv("HOME")
+	if !DiscordGetCredentials(path.Join(home, "/go/src/botCreds.json")) {
 		fmt.Println("failed to get discord bot credentials")
 		return
 	}
@@ -47,10 +48,10 @@ func main() {
 		return
 	}
 
-	if t := botdbStats.BotDbConnect(); !t {
-		fmt.Println("Failed to Connect to database")
-		os.Exit(1)
-	}
+	// if t := botdbStats.BotDbConnect(); !t {
+	// 	fmt.Println("Failed to Connect to database")
+	// 	os.Exit(1)
+	// }
 
 	// Launch goroutine to check if Monthly translate stat Resets
 	go botdbStats.CheckAndUpdateTranslateReset()
