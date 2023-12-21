@@ -8,22 +8,17 @@ import (
 	"os"
 	"os/signal"
 	"path"
-	"strings"
+	"strconv"
 	"syscall"
 
 	botdbStats "github.com/xtraice/go-discord-bot/pkg/bot_dbstats"
 	botTranslate "github.com/xtraice/go-discord-bot/pkg/bot_translate"
 	botUtils "github.com/xtraice/go-discord-bot/pkg/bot_utils"
 
-	"cloud.google.com/go/translate"
 	"github.com/bwmarrin/discordgo"
-	"golang.org/x/text/language"
-	"google.golang.org/api/option"
 )
 
 var botContext context.Context
-var availableCmds = [...]string{"jpen", "enjp"}
-
 var credentials_ botCredentials
 
 type botCredentials struct {
@@ -31,8 +26,8 @@ type botCredentials struct {
 	BotToken string `json:"bottoken"`
 }
 
-var gClient_ *translate.Client
-
+// main is the entry point of the program.
+// It initializes the Discord bot, sets up event handlers, and starts the bot.
 func main() {
 	botContext = context.Background()
 	home := os.Getenv("HOME")
@@ -48,20 +43,16 @@ func main() {
 		return
 	}
 
-	// if t := botdbStats.BotDbConnect(); !t {
-	// 	fmt.Println("Failed to Connect to database")
-	// 	os.Exit(1)
-	// }
-
 	// Launch goroutine to check if Monthly translate stat Resets
 	go botdbStats.CheckAndUpdateTranslateReset()
+	// Setup Interval Update Stats, currently 30 secs
+	go botdbStats.UpdateDBInterval(30000)
 
-	fmt.Println("Setup new client.")
-	gClient_, err = translate.NewClient(botContext, option.WithAPIKey(credentials_.ApiKey))
-	if err != nil {
+	// Initialize Translate Client
+	if err := botTranslate.InitTranslateClient(&botContext, credentials_.ApiKey); err != nil {
 		fmt.Println("failed to get translate client: ", err)
+		return
 	}
-	defer gClient_.Close()
 
 	//assign callback to set game status when bot is ready
 	dg.AddHandler(ready)
@@ -74,7 +65,11 @@ func main() {
 
 	// We need information about guilds (which includes their channels),
 	// messages and voice states.
-	dg.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMessages | discordgo.IntentsGuildVoiceStates
+	dg.Identify.Intents = discordgo.IntentsGuilds |
+		discordgo.IntentsGuildMessages |
+		discordgo.IntentsGuildVoiceStates |
+		discordgo.IntentsDirectMessages
+
 	fmt.Println("setup discord bot")
 	if err := dg.Open(); err != nil {
 		fmt.Println("error opening discord session: ", err)
@@ -87,6 +82,7 @@ func main() {
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 	<-sc
 
+	botdbStats.SaveNow()
 	dg.Close()
 }
 
@@ -103,75 +99,18 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		fmt.Println("Message is from Bot")
 		return
 	}
-
-	cmd := botUtils.GetCmd(m.Content)
-
-	switch cmd {
-	case "help":
-		cmds := "jpen - Japanese To English \n enjp - English To Japanese \n envi - English to Vietnamese \n vien - Vietnamese to English \n"
-		s.ChannelMessageSend(m.ChannelID, cmds)
-
-	case "jpen":
-		fmt.Println("Got jpen Cmd")
-		if jpStr := strings.TrimLeft(m.Content, "<jpen>"); len(jpStr) > 0 {
-			strSlice := []string{jpStr}
-			respStr, _ := botTranslate.Translate(gClient_, botContext, strSlice, language.Japanese, language.English)
-
-			s.ChannelMessageSend(m.ChannelID, respStr)
-			botdbStats.DiscordUserLangStatUpdate(*m, language.Japanese.String(), language.English.String())
-			return
-		}
-	case "enjp":
-		fmt.Println(("Got enjp Cmd"))
-		if enStr := strings.TrimLeft(m.Content, "<enjp>"); len(enStr) > 0 {
-			strSlice := []string{enStr}
-			respStr, _ := botTranslate.Translate(gClient_, botContext, strSlice, language.English, language.Japanese)
-
-			s.ChannelMessageSend(m.ChannelID, respStr)
-			botdbStats.DiscordUserLangStatUpdate(*m, language.English.String(), language.Japanese.String())
-			return
-		}
-	case "vien":
-		fmt.Println(("Got vien Cmd"))
-		if enStr := strings.TrimLeft(m.Content, "<vien>"); len(enStr) > 0 {
-			strSlice := []string{enStr}
-			respStr, _ := botTranslate.Translate(gClient_, botContext, strSlice, language.Vietnamese, language.English)
-
-			s.ChannelMessageSend(m.ChannelID, respStr)
-			botdbStats.DiscordUserLangStatUpdate(*m, language.Vietnamese.String(), language.English.String())
-			return
-		}
-	case "envi":
-		fmt.Println(("Got envi Cmd"))
-		if enStr := strings.TrimLeft(m.Content, "<envi>"); len(enStr) > 0 {
-			strSlice := []string{enStr}
-			respStr, _ := botTranslate.Translate(gClient_, botContext, strSlice, language.English, language.Vietnamese)
-
-			s.ChannelMessageSend(m.ChannelID, respStr)
-			botdbStats.DiscordUserLangStatUpdate(*m, language.English.String(), language.Vietnamese.String())
-			return
-		}
-	case "koen":
-		fmt.Println(("Got envi Cmd"))
-		if enStr := strings.TrimLeft(m.Content, "<koen>"); len(enStr) > 0 {
-			strSlice := []string{enStr}
-			respStr, _ := botTranslate.Translate(gClient_, botContext, strSlice, language.Korean, language.English)
-
-			s.ChannelMessageSend(m.ChannelID, respStr)
-			botdbStats.DiscordUserLangStatUpdate(*m, language.Korean.String(), language.English.String())
-			return
-		}
-	case "enko":
-		fmt.Println(("Got envi Cmd"))
-		if enStr := strings.TrimLeft(m.Content, "<enkor>"); len(enStr) > 0 {
-			strSlice := []string{enStr}
-			respStr, _ := botTranslate.Translate(gClient_, botContext, strSlice, language.English, language.Korean)
-
-			s.ChannelMessageSend(m.ChannelID, respStr)
-			botdbStats.DiscordUserLangStatUpdate(*m, language.English.String(), language.Vietnamese.String())
-			return
-		}
+	var cmd string
+	guildID, _ := strconv.Atoi(m.GuildID)
+	authorID, _ := strconv.Atoi(m.Author.ID)
+	if m.GuildID != "" {
+		botdbStats.AddServer(s, m)
+		cmd = botUtils.GetCmd(m.Content)
+	} else {
+		fmt.Println("Message is from Direct Message")
+		cmd = m.Content
 	}
+
+	handleCommand(s, m, cmd, guildID, authorID)
 }
 
 func guildCreate(s *discordgo.Session, event *discordgo.GuildCreate) {
